@@ -36,29 +36,43 @@ def exract_n_grams(data):
     when the function returns all possible n-grams it takes long... Yet, we can
     just do it once for each of the dialects and save in .txt.
     Or add n as an argument
+    CHANGE: Now it returns a list of lists:
+    one list has all n_gram of one sentence
     """
     n_grams_of_dialect = []
     for sentence in data:
         sentence = sentence[0]
+        n_grams_of_sentence = []
+        # n = 1
+        # while n < 4:
+        #     n_grams_of_sentence = list(zip(*[sentence[i:] for i in range(n)]))
+        #     for n_gram in n_grams_of_sentence:
+        #         n_gram = "".join(n_gram)
+        #         n_grams_of_dialect.append(n_gram)
+        #     n += 1
         n = 1
-        while n < len(sentence):
-            n_grams_of_sentence = list(zip(*[sentence[i:] for i in range(n)]))
-            for n_gram in n_grams_of_sentence:
-                n_gram = "".join(n_gram)
-                n_grams_of_dialect.append(n_gram)
+        while n < 4:
+            n_grams = list(zip(*[sentence[i:] for i in range(n)]))
+            n_grams = ["".join(n_gram) for n_gram in n_grams]
+            n_grams_of_sentence.extend(n_grams)
             n += 1
+
+        n_grams_of_dialect.append(n_grams_of_sentence)
 
     return n_grams_of_dialect
 
 
 def count_n_grams(data):
-    number_n_grams = defaultdict()
-    n_grams = exract_n_grams(data)
-    for n_gram in n_grams:
-        if n_gram not in number_n_grams:
-            number_n_grams[n_gram] = 1
-        else:
-            number_n_grams[n_gram] += 1
+    number_n_grams = []
+    all_n_grams = exract_n_grams(data)
+    for sentence in all_n_grams:
+        count_for_sentence = defaultdict()
+        for n_gram in sentence:
+            if n_gram not in count_for_sentence:
+                count_for_sentence[n_gram] = 1
+            else:
+                count_for_sentence[n_gram] += 1
+        number_n_grams.append(count_for_sentence)
 
     return number_n_grams
 
