@@ -6,18 +6,29 @@
 from __future__ import unicode_literals
 
 from sklearn.pipeline import Pipeline
+from sklearn.svm import SVC
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.neural_network import MLPClassifier
 from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn import metrics
+from sklearn.decomposition import TruncatedSVD
+from sklearn.naive_bayes import GaussianNB
+from sklearn.model_selection import GridSearchCV
+
+from hmmlearn import hmm
 
 from collections import defaultdict
 
+import numpy as np
+import pandas as pd
 import logging
 import argparse
 import random
 import codecs
 import sys
+import re
 reload(sys)
 sys.setdefaultencoding('utf8')
 
@@ -58,6 +69,9 @@ class Trainer(object):
         self._build_pipeline()
         self._fit()
 
+        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        # print(df.sort_values(by=["rank_test_score"]))
+
     def _preprocess(self):
         """
         Reads lines from the raw dialect data.
@@ -97,7 +111,7 @@ class Trainer(object):
         for k, values in d.iteritems():
             logging.debug("%s\t%s" % (values[0], k))
             for value in values:
-                l.append((value, k))
+                l.append((value.lower(), k))
 
         # shuffle, just to be sure
         random.shuffle(l)
@@ -108,15 +122,35 @@ class Trainer(object):
         Builds an sklearn Pipeline. The pipeline consists of a kind of
         vectorizer, followed by a kind of classifier.
         """
-        self.vectorizer = CountVectorizer(stop_words=None)
+        self.vectorizer = CountVectorizer(
+            analyzer="char_wb", ngram_range=(2, 6))
         if self._classifier == "mlp":
             self.classifier = MLPClassifier(
-                verbose=True, early_stopping=False, max_iter=40)  # TODO: early stopping?
+                verbose=True, early_stopping=True, hidden_layer_sizes=(40,))  # TODO: early stopping?
+        elif self._classifier == "svm":
+            #{u'kernel': u'rbf', u'C': 10, u'gamma': 0.001}
+            #{u'kernel': u'rbf', u'C': 9, u'gamma': 0.0009}
+            param_grid = [
+                {'C': np.arange(5, 10, 5), 'gamma': np.arange(
+                    0.0001, 0.001, 0.0005), 'kernel': ['rbf']},
+            ]
+            svm = SVC()
+
+            self.classifier = GridSearchCV(
+                svm, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
+
+        elif self._classifier == "gradient":
+            self.classifier = GradientBoostingClassifier(verbose=True)
+        elif self._classifier == "random_forest":
+            self.classifier = RandomForestClassifier(
+                verbose=True, n_estimators=80)
         else:
             self.classifier = DummyClassifier(strategy="stratified")
 
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
+            #("pca", TruncatedSVD(n_components=2)),
+            ("fs", RFE()),
             ("clf", self.classifier)
         ])
 
@@ -165,7 +199,8 @@ class Predictor(object):
         predictions = []
 
         for sample in samples:
-            sample = sample.strip().split(",")[1]  # column 0 is the index
+            sample = sample.strip().split(
+                ",")[1].lower()  # column 0 is the index
             if label_only:
                 predictions.append(self.pipeline.predict([sample])[0])
             else:
@@ -244,7 +279,7 @@ def parse_cmd():
         required=False,
         default="mlp",
         help="type of classifier to be trained. Either 'mlp' or 'dummy' (stratified class probabilities)",
-        choices=("mlp", "dummy")
+        choices=("mlp", "svm", "gradient", "random_forest", "dummy")
     )
 
     predict_options = parser.add_argument_group("prediction parameters")
