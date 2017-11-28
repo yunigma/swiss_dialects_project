@@ -16,6 +16,7 @@ from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV
+from sklearn.feature_selection import RFE
 
 from hmmlearn import hmm
 
@@ -150,7 +151,6 @@ class Trainer(object):
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
             #("pca", TruncatedSVD(n_components=2)),
-            ("fs", RFE()),
             ("clf", self.classifier)
         ])
 
