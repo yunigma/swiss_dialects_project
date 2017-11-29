@@ -43,7 +43,7 @@ random.shuffle(l)
 train_X, train_y = zip(*l)
 
 vectorizer = CountVectorizer(
-    analyzer="char_wb", ngram_range=(2, 6), encoding=u'utf-8')
+    analyzer="char_wb", ngram_range=(2, 3), encoding=u'utf-8')
 classifier = MLPClassifier(
     verbose=True, early_stopping=True, hidden_layer_sizes=(40,))
 
@@ -56,6 +56,8 @@ data_BE = [line[0] for line in l if line[1] == "BE"]
 data_BS = [line[0] for line in l if line[1] == "BS"]
 data_LU = [line[0] for line in l if line[1] == "LU"]
 data_ZH = [line[0] for line in l if line[1] == "ZH"]
+all_dialects = [line[0] for line in l]
+# print(all_dialects)
 
 
 def get_features(data):
@@ -69,6 +71,7 @@ def get_features(data):
 
     for f, n in zip(features, features_count):
         dict_features_count[f] = n
+
     best_features = sorted(dict_features_count.items(), key=lambda x:x[1], reverse=True)[:20]
 
     n_grams = list(zip(*best_features))[0]
@@ -79,10 +82,12 @@ def get_features(data):
     trendline = intercept + (slope * x_pos)
 
     # plt.plot(x_pos, trendline, color='red', linestyle='--')
-    plt.bar(x_pos, count, align='center')
-    plt.xticks(x_pos, n_grams)
-    plt.ylabel('N-gram Frequency')
-    plt.show()
+    # plt.bar(x_pos, count, align='center')
+    # plt.xticks(x_pos, n_grams)
+    # plt.ylabel('N-gram Frequency')
+    # plt.show()
+
+    return dict_features_count
 
 
 for sentence in data_BE:
@@ -90,7 +95,55 @@ for sentence in data_BE:
     # print(analyze(sentence))
 
 
-# get_features(data_BE)
-# get_features(data_BS)
-# get_features(data_LU)
-get_features(data_ZH)
+features_BE = get_features(data_BE)
+features_BS = get_features(data_BS)
+features_LU = get_features(data_LU)
+features_ZH = get_features(data_ZH)
+
+all_dial_features = get_features(all_dialects)
+
+relative_frequencies = []
+for feature in all_dial_features:
+    if feature not in features_BE:
+        prob1 = 0
+    else:
+        prob1 = features_BE[feature] / all_dial_features[feature]
+    if feature not in features_BS:
+        prob2 = 0
+    else:
+        prob2 = features_BS[feature] / all_dial_features[feature]
+    if feature not in features_LU:
+        prob3 = 0
+    else:
+        prob3 = features_LU[feature] / all_dial_features[feature]
+    if feature not in features_ZH:
+        prob4 = 0
+    else:
+        prob4 = features_ZH[feature] / all_dial_features[feature]
+
+    relative_frequencies.append((feature, prob1, prob2, prob3, prob4))
+
+# good_features = [f for f in relative_frequencies if 1 in f]
+num_features = {}
+for f in relative_frequencies:
+    num = f[1:]
+    num_features[f[0]] = max(num) - 0.25
+
+good_features = sorted(num_features.items(), key=lambda x:x[1], reverse=True)
+# good_features = [f[0] for f in sorted(num_features.items(), key=lambda x:x[1], reverse=True)]
+
+# print(good_features)
+# print(len(good_features))
+
+item = list(zip(*good_features))[0]
+count = list(zip(*good_features))[1]
+x_pos = np.arange(len(item))
+
+slope, intercept = np.polyfit(x_pos, count, 1)
+trendline = intercept + (slope * x_pos)
+
+plt.plot(x_pos, trendline, color='red', linestyle='--')
+plt.bar(x_pos, count, align='center')
+plt.xticks(x_pos, item)
+plt.ylabel('N-gram Frequency')
+plt.show()
