@@ -17,6 +17,7 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV
 from sklearn.feature_selection import RFE
+from sklearn.preprocessing import FunctionTransformer
 
 from hmmlearn import hmm
 
@@ -38,6 +39,38 @@ random.seed(42)
 sys.stdout = codecs.getwriter('utf-8')(sys.__stdout__)
 sys.stderr = codecs.getwriter('utf-8')(sys.__stderr__)
 sys.stdin = codecs.getreader('utf-8')(sys.__stdin__)
+
+
+def clean(GX, gy):
+    # Transform to float for calculations
+    X = GX.astype("f")
+    y = np.array(gy)
+
+    labels = ["BE", "BS", "LU", "ZH"]
+    n_gram_sums = np.squeeze(np.array(
+        [np.sum(X[y == label], axis=0) for label in labels]))
+
+    probabilities = []
+
+    for idx in range(len(labels)):
+        sum_all = np.sum(n_gram_sums, axis=0)
+        probability = n_gram_sums[idx] / sum_all
+        probabilities.append(probability)
+
+    probabilities = np.array(probabilities)
+
+    alpha = 0.05
+    min_probability_in_dialects = np.min(probabilities, axis=0)
+    max_probability_in_dialects = np.max(probabilities, axis=0)
+
+    max_condition = max_probability_in_dialects >= (1 - alpha * 2)
+    min_condition = min_probability_in_dialects <= alpha
+
+    mask = np.argwhere(np.logical_or(min_condition, max_condition))
+    mask = np.squeeze(mask)
+
+    # Return reduced feature set
+    return GX[:, mask]
 
 
 class Trainer(object):
@@ -70,7 +103,7 @@ class Trainer(object):
         self._build_pipeline()
         self._fit()
 
-        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        # df = pd.DataFrame.from_dict(self.classifier.cv_results_)
         # print(df.sort_values(by=["rank_test_score"]))
 
     def _preprocess(self):
@@ -135,10 +168,10 @@ class Trainer(object):
                 {'C': np.arange(5, 10, 5), 'gamma': np.arange(
                     0.0001, 0.001, 0.0005), 'kernel': ['rbf']},
             ]
-            svm = SVC()
+            self.classifier = SVC(C=9, kernel='rbf')
 
-            self.classifier = GridSearchCV(
-                svm, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
+            # self.classifier = GridSearchCV(
+            #    svm, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
 
         elif self._classifier == "gradient":
             self.classifier = GradientBoostingClassifier(verbose=True)
@@ -150,7 +183,9 @@ class Trainer(object):
 
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
-            #("pca", TruncatedSVD(n_components=2)),
+            # Boost n-grams
+            #("cleaning", FunctionTransformer(
+            #    clean, accept_sparse=True, pass_y=True)),
             ("clf", self.classifier)
         ])
 
