@@ -41,36 +41,40 @@ sys.stderr = codecs.getwriter('utf-8')(sys.__stderr__)
 sys.stdin = codecs.getreader('utf-8')(sys.__stdin__)
 
 
-def clean(GX, gy):
-    # Transform to float for calculations
-    X = GX.astype("f")
-    y = np.array(gy)
+class CleanTransformer():
+    def fit(self, GX, gy):
+        # Transform to float for calculations
+        X = GX.astype("f")
+        y = np.array(gy)
 
-    labels = ["BE", "BS", "LU", "ZH"]
-    n_gram_sums = np.squeeze(np.array(
-        [np.sum(X[y == label], axis=0) for label in labels]))
+        labels = ["BE", "BS", "LU", "ZH"]
+        n_gram_sums = np.squeeze(np.array(
+            [np.sum(X[y == label], axis=0) for label in labels]))
 
-    probabilities = []
+        probabilities = []
 
-    for idx in range(len(labels)):
-        sum_all = np.sum(n_gram_sums, axis=0)
-        probability = n_gram_sums[idx] / sum_all
-        probabilities.append(probability)
+        for idx in range(len(labels)):
+            sum_all = np.sum(n_gram_sums, axis=0)
+            probability = n_gram_sums[idx] / sum_all
+            probabilities.append(probability)
 
-    probabilities = np.array(probabilities)
+        probabilities = np.array(probabilities)
 
-    alpha = 0.05
-    min_probability_in_dialects = np.min(probabilities, axis=0)
-    max_probability_in_dialects = np.max(probabilities, axis=0)
+        alpha = 0.1
+        min_probability_in_dialects = np.min(probabilities, axis=0)
+        max_probability_in_dialects = np.max(probabilities, axis=0)
 
-    max_condition = max_probability_in_dialects >= (1 - alpha * 2)
-    min_condition = min_probability_in_dialects <= alpha
+        max_condition = max_probability_in_dialects >= (1 - alpha * 3)
+        min_condition = min_probability_in_dialects <= alpha
 
-    mask = np.argwhere(np.logical_or(min_condition, max_condition))
-    mask = np.squeeze(mask)
+        mask = np.argwhere(np.logical_or(min_condition, max_condition))
+        self.mask = np.squeeze(mask)
 
-    # Return reduced feature set
-    return GX[:, mask]
+        return self
+
+    def transform(self, X):
+        # Return reduced feature set
+        return X[:, self.mask]
 
 
 class Trainer(object):
@@ -184,8 +188,7 @@ class Trainer(object):
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
             # Boost n-grams
-            #("cleaning", FunctionTransformer(
-            #    clean, accept_sparse=True, pass_y=True)),
+            ("cleaning", CleanTransformer()),
             ("clf", self.classifier)
         ])
 
