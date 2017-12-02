@@ -35,12 +35,12 @@ for idx in range(len(labels)):
 
 probabilities = np.array(probabilities)
 
-alpha = 0.05
+alpha = 0.1
 min_probability_in_dialects = np.min(probabilities, axis=0)
 max_probability_in_dialects = np.max(probabilities, axis=0)
 
-max_condition = max_probability_in_dialects >= (1 - alpha * 2)
-min_condition = min_probability_in_dialects <= alpha
+max_condition = max_probability_in_dialects >= probabilities.mean() + probabilities.std()
+min_condition = min_probability_in_dialects <= probabilities.mean() - probabilities.std()
 
 mask = np.argwhere(np.logical_and(min_condition, max_condition))
 mask = np.squeeze(mask)

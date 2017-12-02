@@ -15,7 +15,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.naive_bayes import GaussianNB
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.feature_selection import RFE
 from sklearn.preprocessing import FunctionTransformer
 
@@ -48,11 +48,16 @@ class CleanTransformer():
         y = np.array(gy)
 
         labels = ["BE", "BS", "LU", "ZH"]
+
+        # Create sums of n-grams - one sum for each
+        # feature and dialect
         n_gram_sums = np.squeeze(np.array(
             [np.sum(X[y == label], axis=0) for label in labels]))
 
         probabilities = []
 
+        # Calculate probabilties of the occurrence of each
+        # feature for each dialect
         for idx in range(len(labels)):
             sum_all = np.sum(n_gram_sums, axis=0)
             probability = n_gram_sums[idx] / sum_all
@@ -60,13 +65,20 @@ class CleanTransformer():
 
         probabilities = np.array(probabilities)
 
-        alpha = 0.1
         min_probability_in_dialects = np.min(probabilities, axis=0)
         max_probability_in_dialects = np.max(probabilities, axis=0)
 
-        max_condition = max_probability_in_dialects >= (1 - alpha * 3)
-        min_condition = min_probability_in_dialects <= alpha
+        var = probabilities.var()
+        mean = probabilities.mean()
 
+        # Create conditions which determine if we want to respect
+        # the feature in the following classifier
+        max_condition = max_probability_in_dialects >= 0.4
+        min_condition = min_probability_in_dialects <= 0.1
+
+        # Apply conditions to create a mask which can be used in
+        # the transform to filter the feature matrix
+        # np.argwhere(np.logical_or(min_condition, max_condition))
         mask = np.argwhere(np.logical_or(min_condition, max_condition))
         self.mask = np.squeeze(mask)
 
@@ -107,7 +119,7 @@ class Trainer(object):
         self._build_pipeline()
         self._fit()
 
-        # df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
         # print(df.sort_values(by=["rank_test_score"]))
 
     def _preprocess(self):
@@ -163,8 +175,19 @@ class Trainer(object):
         self.vectorizer = CountVectorizer(
             analyzer="char_wb", ngram_range=(2, 6))
         if self._classifier == "mlp":
-            self.classifier = MLPClassifier(
-                verbose=True, early_stopping=True, hidden_layer_sizes=(40,))  # TODO: early stopping?
+            # param_grid = {'hidden_layer_sizes': [1, 10, 40, 100], 'activation': ['logistic', 'tanh', 'relu'], 'solver': [
+            #    'lbfgs', 'sgd', 'adam'], 'alpha': [0.0001, 0.001, 0.00001]}
+
+            # solver: adam, alpha: 0.001, activation: relu, hidden layers: 40
+            mlp = MLPClassifier(
+                verbose=True, early_stopping=True, hidden_layer_sizes=(50,))
+
+            self.classifier = mlp
+
+            # self.classifier = GridSearchCV(
+            #    mlp, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
+            # self.classifier = RandomizedSearchCV(
+            #    mlp, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
         elif self._classifier == "svm":
             #{u'kernel': u'rbf', u'C': 10, u'gamma': 0.001}
             #{u'kernel': u'rbf', u'C': 9, u'gamma': 0.0009}
