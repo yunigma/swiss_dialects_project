@@ -73,8 +73,8 @@ class CleanTransformer():
 
         # Create conditions which determine if we want to respect
         # the feature in the following classifier
-        max_condition = max_probability_in_dialects >= 0.4
-        min_condition = min_probability_in_dialects <= 0.1
+        max_condition = max_probability_in_dialects >= 0.35
+        min_condition = min_probability_in_dialects <= 0.15
 
         # Apply conditions to create a mask which can be used in
         # the transform to filter the feature matrix
