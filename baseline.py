@@ -5,9 +5,9 @@
 
 from __future__ import unicode_literals
 
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.svm import SVC
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.neural_network import MLPClassifier
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -17,7 +17,9 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.feature_selection import RFE
-from sklearn.preprocessing import FunctionTransformer
+from sklearn.preprocessing import FunctionTransformer, Normalizer
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2
 
 from hmmlearn import hmm
 
@@ -47,6 +49,8 @@ class CleanTransformer():
         X = GX.astype("f")
         y = np.array(gy)
 
+        print GX.shape
+
         labels = ["BE", "BS", "LU", "ZH"]
 
         # Create sums of n-grams - one sum for each
@@ -68,13 +72,10 @@ class CleanTransformer():
         min_probability_in_dialects = np.min(probabilities, axis=0)
         max_probability_in_dialects = np.max(probabilities, axis=0)
 
-        var = probabilities.var()
-        mean = probabilities.mean()
-
         # Create conditions which determine if we want to respect
         # the feature in the following classifier
-        max_condition = max_probability_in_dialects >= 0.35
-        min_condition = min_probability_in_dialects <= 0.15
+        max_condition = max_probability_in_dialects >= 0.7
+        min_condition = min_probability_in_dialects <= 0.2
 
         # Apply conditions to create a mask which can be used in
         # the transform to filter the feature matrix
@@ -119,8 +120,9 @@ class Trainer(object):
         self._build_pipeline()
         self._fit()
 
-        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
-        # print(df.sort_values(by=["rank_test_score"]))
+        # if "cv_results_" in self.classifier:
+        #    df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        #    print(df.sort_values(by=["rank_test_score"]))
 
     def _preprocess(self):
         """
@@ -172,15 +174,15 @@ class Trainer(object):
         Builds an sklearn Pipeline. The pipeline consists of a kind of
         vectorizer, followed by a kind of classifier.
         """
-        self.vectorizer = CountVectorizer(
-            analyzer="char_wb", ngram_range=(2, 6))
+        self.vectorizer = TfidfVectorizer(
+            analyzer="char", ngram_range=(2, 6))
         if self._classifier == "mlp":
             # param_grid = {'hidden_layer_sizes': [1, 10, 40, 100], 'activation': ['logistic', 'tanh', 'relu'], 'solver': [
             #    'lbfgs', 'sgd', 'adam'], 'alpha': [0.0001, 0.001, 0.00001]}
 
             # solver: adam, alpha: 0.001, activation: relu, hidden layers: 40
             mlp = MLPClassifier(
-                verbose=True, early_stopping=True, hidden_layer_sizes=(50,))
+                verbose=True, early_stopping=True, alpha=0.001, hidden_layer_sizes=40)
 
             self.classifier = mlp
 
@@ -191,12 +193,13 @@ class Trainer(object):
         elif self._classifier == "svm":
             #{u'kernel': u'rbf', u'C': 10, u'gamma': 0.001}
             #{u'kernel': u'rbf', u'C': 9, u'gamma': 0.0009}
+            # C=5, gamma=0.0005
             param_grid = [
-                {'C': np.arange(5, 10, 5), 'gamma': np.arange(
-                    0.0001, 0.001, 0.0005), 'kernel': ['rbf']},
+                {'C': np.arange(4, 6, 1), 'gamma': np.arange(
+                    0.0004, 0.0006, 0.0001), 'kernel': ['rbf']},
             ]
-            self.classifier = SVC(C=9, kernel='rbf')
-
+            svm = SVC(C=5, gamma=0.0005)
+            self.classifier = svm
             # self.classifier = GridSearchCV(
             #    svm, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
 
@@ -212,6 +215,7 @@ class Trainer(object):
             ("vectorizer", self.vectorizer),
             # Boost n-grams
             ("cleaning", CleanTransformer()),
+            ("select", SelectKBest(chi2, k=20000)),
             ("clf", self.classifier)
         ])
 

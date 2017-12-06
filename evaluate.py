@@ -32,3 +32,13 @@ print
 
 for key, value in sorted(errors.items(), key=operator.itemgetter(1), reverse=True):
     print("{} -> {}: {}".format(key[0], key[1], value))
+
+with open("validation_test.csv") as val_set:
+    val_set.readline()
+    validation_set = np.array([s.replace('\t', ',').split(',')
+                               for s in val_set])
+
+for idx in range(actual_results.shape[0]):
+    if results[idx, 1] == "LU" and actual_results[idx, 1] != "LU" or \
+            actual_results[idx, 1] == "LU" and results[idx, 1] != "LU":
+        print "Should: {}; Is: {} -- {}".format(actual_results[idx, 1], results[idx, 1], validation_set[idx, 1])
