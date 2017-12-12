@@ -3,6 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import re
 from sklearn.svm import SVC
 
 
@@ -39,18 +40,23 @@ alpha = 0.1
 min_probability_in_dialects = np.min(probabilities, axis=0)
 max_probability_in_dialects = np.max(probabilities, axis=0)
 
-max_condition = max_probability_in_dialects >= 0.8
-min_condition = min_probability_in_dialects <= 0.4
+max_condition = max_probability_in_dialects >= 0.35
+min_condition = min_probability_in_dialects <= 0.15
 
-mask = np.argwhere(np.logical_and(min_condition, max_condition))
+mask = np.argwhere(np.logical_or(min_condition, max_condition))
 mask = np.squeeze(mask)
 
 resulting_features = X[:, mask]
 
-means = []
-for i in range(10000):
-    means.append(np.mean(np.random.choice(probabilities.flatten(), 100)))
-means = np.array(means)
-means = (means - means.mean()) / means.std()
-sns.distplot(means, bins=30)
-plt.show()
+
+def plot():
+    means = []
+    for i in range(10000):
+        means.append(np.mean(np.random.choice(probabilities.flatten(), 100)))
+    means = np.array(means)
+    #means = (means - means.mean()) / means.std()
+    sns.distplot(probabilities.flatten(), bins=30)
+    plt.show()
+
+
+plot()

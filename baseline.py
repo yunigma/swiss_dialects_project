@@ -5,21 +5,21 @@
 
 from __future__ import unicode_literals
 
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.svm import SVC
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, TfidfTransformer
 from sklearn.neural_network import MLPClassifier
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import GaussianNB, MultinomialNB, BernoulliNB
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.feature_selection import RFE
-from sklearn.preprocessing import FunctionTransformer
-
-from hmmlearn import hmm
+from sklearn.preprocessing import FunctionTransformer, Normalizer
+from sklearn.feature_selection import SelectFwe, SelectKBest
+from sklearn.feature_selection import chi2, f_classif, mutual_info_classif
 
 from collections import defaultdict
 
@@ -68,12 +68,9 @@ class CleanTransformer():
         min_probability_in_dialects = np.min(probabilities, axis=0)
         max_probability_in_dialects = np.max(probabilities, axis=0)
 
-        var = probabilities.var()
-        mean = probabilities.mean()
-
         # Create conditions which determine if we want to respect
         # the feature in the following classifier
-        max_condition = max_probability_in_dialects >= 0.35
+        max_condition = max_probability_in_dialects >= 0.4
         min_condition = min_probability_in_dialects <= 0.15
 
         # Apply conditions to create a mask which can be used in
@@ -119,7 +116,8 @@ class Trainer(object):
         self._build_pipeline()
         self._fit()
 
-        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        # if "cv_results_" in self.classifier:
+        # df = pd.DataFrame.from_dict(self.classifier.cv_results_)
         # print(df.sort_values(by=["rank_test_score"]))
 
     def _preprocess(self):
@@ -174,44 +172,68 @@ class Trainer(object):
         """
         self.vectorizer = CountVectorizer(
             analyzer="char_wb", ngram_range=(2, 6))
+        # voc = []
+        # with open("featureDB.final.csv") as featureDB:
+        #    for wordLine in featureDB:
+        #        word = wordLine.split(',')[0]
+        #        if word not in voc:
+        #            voc.append(word)
+#
+        # self.vectorizer = CountVectorizer(vocabulary=voc)
         if self._classifier == "mlp":
-            # param_grid = {'hidden_layer_sizes': [1, 10, 40, 100], 'activation': ['logistic', 'tanh', 'relu'], 'solver': [
-            #    'lbfgs', 'sgd', 'adam'], 'alpha': [0.0001, 0.001, 0.00001]}
+            param_grid = {'hidden_layer_sizes': [30, 40]}
 
             # solver: adam, alpha: 0.001, activation: relu, hidden layers: 40
-            mlp = MLPClassifier(
-                verbose=True, early_stopping=True, hidden_layer_sizes=(50,))
+            mlp = MLPClassifier(early_stopping=True,
+                                alpha=0.0001, hidden_layer_sizes=40, verbose=True)
 
             self.classifier = mlp
 
             # self.classifier = GridSearchCV(
-            #    mlp, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
+            #    mlp, param_grid, cv = 5, scoring = 'accuracy', n_jobs = -1, return_train_score = True, verbose = 10)
             # self.classifier = RandomizedSearchCV(
             #    mlp, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
         elif self._classifier == "svm":
             #{u'kernel': u'rbf', u'C': 10, u'gamma': 0.001}
             #{u'kernel': u'rbf', u'C': 9, u'gamma': 0.0009}
-            param_grid = [
-                {'C': np.arange(5, 10, 5), 'gamma': np.arange(
-                    0.0001, 0.001, 0.0005), 'kernel': ['rbf']},
-            ]
-            self.classifier = SVC(C=9, kernel='rbf')
+            # C=5, gamma=0.0005
+            param_grid = {'C': np.arange(4, 6, 1), 'gamma': np.arange(
+                0.0004, 0.0006, 0.0001), 'kernel': ['rbf']},
 
+            svm = SVC(C=5, gamma=0.0005)
+            self.classifier = svm
             # self.classifier = GridSearchCV(
-            #    svm, param_grid, cv=10, scoring='accuracy', n_jobs=1, return_train_score=True)
+            #    svm, param_grid, cv=10, scoring='accuracy', n_jobs=-1, return_train_score=True, verbose=10)
 
         elif self._classifier == "gradient":
-            self.classifier = GradientBoostingClassifier(verbose=True)
+            param_grid = {'learning_rate': [
+                0.8], 'n_estimators': [500], 'max_depth': [4]},
+
+            gradient = GradientBoostingClassifier(
+                learning_rate=0.4, max_depth=4, n_estimators=500)
+
+            self.classifier = gradient
+            # self.classifier = GridSearchCV(
+            #    gradient, param_grid, cv=5, scoring='accuracy', n_jobs=-1, return_train_score=True, verbose=10)
         elif self._classifier == "random_forest":
-            self.classifier = RandomForestClassifier(
-                verbose=True, n_estimators=80)
+            param_grid = {
+                'n_estimators': [50, 80, 100],
+                'max_features': ["sqrt", "auto", "log2"]
+            }
+            rfc = RandomForestClassifier(
+                verbose=True, n_estimators=80, n_jobs=-1)
+
+            self.classifier = GridSearchCV(
+                rfc, param_grid, cv=10, scoring='accuracy', n_jobs=-1, return_train_score=True, verbose=10)
         else:
             self.classifier = DummyClassifier(strategy="stratified")
 
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
             # Boost n-grams
+            ("select", SelectKBest(chi2, k=30000)),
             ("cleaning", CleanTransformer()),
+            ("tfidf", TfidfTransformer()),
             ("clf", self.classifier)
         ])
 
@@ -239,38 +261,83 @@ class Predictor(object):
     Predicts the dialect of text, given a trained model.
     """
 
-    def __init__(self, model="model.pkl"):
+    def __init__(self):
         """
         """
-        self._model = model
-        self._load()
 
-    def _load(self):
+    def _load(self, model):
         """
         Loads a model that was previously trained and saved.
         """
         from sklearn.externals import joblib
-        self.pipeline = joblib.load(self._model)
-        logging.debug("Loading model pipeline from '%s'" % self._model)
+        self.pipeline = joblib.load(model)
+        logging.debug("Loading model pipeline from '%s'" % model)
 
-    def predict(self, samples, label_only=False):
+    def _predict(self, model, samples, label_only=False):
         """
         Predicts the class (=dialect) of new text samples.
         """
+        self._load(model)
+
         predictions = []
 
         for sample in samples:
             sample = sample.strip().split(
                 ",")[1].lower()  # column 0 is the index
+            prediction = self.pipeline.predict([sample])[0]
+            """
+            if re.search("ang\s", sample) and prediction == "LU":
+                prediction = "BE"
+            if re.search("[aeiouäöüóòáàéèíìúù]{3,}", sample):
+                prediction = "BE"
+            # if len(re.findall("[äöüaeiou]\1", sample)) > 2 and (prediction == "BE" or prediction == "BS"):
+            #    prediction = "LU"
+            if re.search("(imene|en\s)", sample):
+                prediction = "LU"
+            if re.search("\s.ai\s", sample):
+                prediction = "BS"
+            """
             if label_only:
-                predictions.append(self.pipeline.predict([sample])[0])
+                predictions.append(prediction)
             else:
-                predictions.append(
-                    (sample, self.pipeline.predict([sample])[0]))
+                predictions.append((sample, prediction))
 
         return predictions
 
-    def evaluate(self, samples):
+    def predict(self, model, samples, label_only=False, combined=False):
+        if not combined:
+            return self._predict(model, samples, label_only)
+
+        predictionsMLP = self._predict(
+            "model_mlp.pkz", samples, True)
+        predictionsSVM = self._predict(
+            "model_svm.pkz", samples, True)
+        predictionsGRAD = self._predict(
+            "model_gradient.pkz", samples, True)
+
+        predictions = np.array(
+            [predictionsMLP, predictionsSVM, predictionsGRAD])
+        final_predictions = []
+
+        for idx in range(predictions.shape[1]):
+            all_predictions = predictions[:, idx]
+
+            found_classes, counts = np.unique(
+                all_predictions, return_counts=True)
+
+            frequencies = dict(zip(counts, found_classes))
+            if found_classes.shape[0] == 3:
+                # If 3 different classes occurred, take the estimation of
+                # MLP
+                final_predictions.append(found_classes[0])
+            elif 2 in frequencies:  # Take the class with the highest frequency
+                final_predictions.append(frequencies[2])
+            else:
+                final_predictions.append(frequencies[3])
+
+        return final_predictions
+
+    def evaluate(self, model, samples, combined):
         """
         Evaluates the classifier with gold labelled data.
         """
@@ -284,9 +351,13 @@ class Predictor(object):
 
         logging.debug("Number of gold samples found: %d" % len(test_y))
 
-        predictions = self.predict(test_X, label_only=True)
+        predictions = self.predict(
+            model, test_X, label_only=True, combined=combined)
         logging.info(metrics.classification_report(test_y, predictions,
                                                    target_names=None))
+
+        logging.info("Accuracy: " +
+                     str(metrics.accuracy_score(test_y, predictions)))
 
 
 def parse_cmd():
@@ -296,7 +367,7 @@ def parse_cmd():
     parser.add_argument(
         "-m", "--model",
         type=str,
-        required=True,
+        required=False,
         help="if --train, then save model to this path. If --predict, use saved model at this path."
     )
     parser.add_argument(
@@ -340,7 +411,7 @@ def parse_cmd():
         required=False,
         default="mlp",
         help="type of classifier to be trained. Either 'mlp' or 'dummy' (stratified class probabilities)",
-        choices=("mlp", "svm", "gradient", "random_forest", "dummy")
+        choices=("mlp", "svm", "gradient", "crf", "random_forest", "dummy")
     )
 
     predict_options = parser.add_argument_group("prediction parameters")
@@ -350,6 +421,13 @@ def parse_cmd():
         type=str,
         required=False,
         help="Path to file containing samples for which a class should be predicted. If --samples is not given, input from STDIN is assumed"
+    )
+
+    predict_options.add_argument(
+        "--combined",
+        required=False,
+        action="store_true",
+        help="Whether to combine results of the different classifiers. The --classifier parameter will be ignored."
     )
 
     args = parser.parse_args()
@@ -378,7 +456,7 @@ def main():
         t.train()
         t.save()
     else:
-        p = Predictor(model=args.model)
+        p = Predictor()
         if args.samples:
             input_ = codecs.open(args.samples, "r", "UTF-8")
         else:
@@ -389,9 +467,11 @@ def main():
         input_.readline()
 
         if args.evaluate:
-            p.evaluate(samples=input_)
+            p.evaluate(model=args.model, samples=input_,
+                       combined=args.combined)
         else:
-            predictions = p.predict(samples=input_, label_only=True)
+            predictions = p.predict(
+                model=args.model, samples=input_, label_only=True, combined=args.combined)
             print "Id,Prediction"
             for index, prediction in enumerate(predictions):
                 print "%s,%s" % (index + 1, prediction)
