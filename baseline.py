@@ -7,19 +7,19 @@ from __future__ import unicode_literals
 
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.svm import SVC
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, TfidfTransformer
 from sklearn.neural_network import MLPClassifier
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import GaussianNB, MultinomialNB, BernoulliNB
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.feature_selection import RFE
 from sklearn.preprocessing import FunctionTransformer, Normalizer
 from sklearn.feature_selection import SelectFwe, SelectKBest
-from sklearn.feature_selection import chi2, f_classif
+from sklearn.feature_selection import chi2, f_classif, mutual_info_classif
 
 from collections import defaultdict
 
@@ -70,8 +70,8 @@ class CleanTransformer():
 
         # Create conditions which determine if we want to respect
         # the feature in the following classifier
-        max_condition = max_probability_in_dialects >= 0.5
-        min_condition = min_probability_in_dialects <= 0.2
+        max_condition = max_probability_in_dialects >= 0.4
+        min_condition = min_probability_in_dialects <= 0.15
 
         # Apply conditions to create a mask which can be used in
         # the transform to filter the feature matrix
@@ -117,7 +117,7 @@ class Trainer(object):
         self._fit()
 
         # if "cv_results_" in self.classifier:
-        #df = pd.DataFrame.from_dict(self.classifier.cv_results_)
+        # df = pd.DataFrame.from_dict(self.classifier.cv_results_)
         # print(df.sort_values(by=["rank_test_score"]))
 
     def _preprocess(self):
@@ -172,6 +172,14 @@ class Trainer(object):
         """
         self.vectorizer = CountVectorizer(
             analyzer="char_wb", ngram_range=(2, 6))
+        # voc = []
+        # with open("featureDB.final.csv") as featureDB:
+        #    for wordLine in featureDB:
+        #        word = wordLine.split(',')[0]
+        #        if word not in voc:
+        #            voc.append(word)
+#
+        # self.vectorizer = CountVectorizer(vocabulary=voc)
         if self._classifier == "mlp":
             param_grid = {'hidden_layer_sizes': [30, 40]}
 
@@ -223,8 +231,9 @@ class Trainer(object):
         self.pipeline = Pipeline([
             ("vectorizer", self.vectorizer),
             # Boost n-grams
+            ("select", SelectKBest(chi2, k=30000)),
             ("cleaning", CleanTransformer()),
-            ("select", SelectKBest(f_classif, k=15000)),
+            ("tfidf", TfidfTransformer()),
             ("clf", self.classifier)
         ])
 
@@ -275,11 +284,23 @@ class Predictor(object):
         for sample in samples:
             sample = sample.strip().split(
                 ",")[1].lower()  # column 0 is the index
+            prediction = self.pipeline.predict([sample])[0]
+            """
+            if re.search("ang\s", sample) and prediction == "LU":
+                prediction = "BE"
+            if re.search("[aeiouäöüóòáàéèíìúù]{3,}", sample):
+                prediction = "BE"
+            # if len(re.findall("[äöüaeiou]\1", sample)) > 2 and (prediction == "BE" or prediction == "BS"):
+            #    prediction = "LU"
+            if re.search("(imene|en\s)", sample):
+                prediction = "LU"
+            if re.search("\s.ai\s", sample):
+                prediction = "BS"
+            """
             if label_only:
-                predictions.append(self.pipeline.predict([sample])[0])
+                predictions.append(prediction)
             else:
-                predictions.append(
-                    (sample, self.pipeline.predict([sample])[0]))
+                predictions.append((sample, prediction))
 
         return predictions
 
@@ -334,6 +355,9 @@ class Predictor(object):
             model, test_X, label_only=True, combined=combined)
         logging.info(metrics.classification_report(test_y, predictions,
                                                    target_names=None))
+
+        logging.info("Accuracy: " +
+                     str(metrics.accuracy_score(test_y, predictions)))
 
 
 def parse_cmd():
